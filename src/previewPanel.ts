@@ -98,31 +98,175 @@ export class TaskPaperPreviewPanel {
 
     private async _addProject(afterLine: number) {
         const projectName = await vscode.window.showInputBox({
-            prompt: 'Enter project name',
-            placeHolder: 'Project Name'
+            prompt: 'Enter project name (optionally add @due(MM/DD) for due date)',
+            placeHolder: 'Project Name @due(MM/DD)'
         });
 
         if (projectName) {
             const wsEdit = new vscode.WorkspaceEdit();
-            const position = new vscode.Position(afterLine + 1, 0);
-            wsEdit.insert(this._document.uri, position, `\n${projectName}:\n`);
+            const doc = this._document;
+            const lines = doc.getText().split('\n');
+            
+            // Collect all existing projects and the new one
+            interface Project {
+                title: string;
+                dueDate: Date | null;
+                content: string[];
+            }
+            
+            const projects: Project[] = [];
+            let currentProject: Project | null = null;
+            
+            // First collect all existing projects
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                if (line.endsWith(':')) {
+                    if (currentProject) {
+                        projects.push(currentProject);
+                    }
+                    const dueDateMatch = line.match(/@due\(([^)]+)\)/);
+                    currentProject = {
+                        title: line,
+                        dueDate: dueDateMatch ? this._parseDate(dueDateMatch[1]) : null,
+                        content: []
+                    };
+                } else if (currentProject) {
+                    currentProject.content.push(lines[i]);
+                }
+            }
+            
+            // Add the last project if it exists
+            if (currentProject) {
+                projects.push(currentProject);
+            }
+            
+            // Add the new project
+            const newDueDateMatch = projectName.match(/@due\(([^)]+)\)/);
+            projects.push({
+                title: projectName + ':',
+                dueDate: newDueDateMatch ? this._parseDate(newDueDateMatch[1]) : null,
+                content: []
+            });
+            
+            // Sort projects by due date
+            projects.sort((a, b) => {
+                if (!a.dueDate && !b.dueDate) return 0;
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                
+                const aTime = a.dueDate.getTime();
+                const bTime = b.dueDate.getTime();
+                return aTime - bTime;
+            });
+            
+            // Build the new document content
+            const newContent = projects.map(project => {
+                return [project.title, ...project.content].join('\n');
+            }).join('\n\n');
+            
+            // Replace the entire document content
+            const fullRange = new vscode.Range(
+                new vscode.Position(0, 0),
+                doc.lineAt(doc.lineCount - 1).range.end
+            );
+            
+            wsEdit.replace(doc.uri, fullRange, newContent);
             await vscode.workspace.applyEdit(wsEdit);
         }
+    }
+
+    private _parseDate(dateStr: string): Date {
+        // Handle dates with times and without times
+        const parts = dateStr.trim().split(' ');
+        const datePart = parts[0];
+        
+        // Parse MM/DD format
+        const [month, day] = datePart.split('/').map(n => parseInt(n));
+        
+        // Create date with current year (since we're dealing with MM/DD format)
+        const date = new Date();
+        date.setMonth(month - 1); // Months are 0-based in JavaScript
+        date.setDate(day);
+        
+        // If time is provided, parse it
+        if (parts.length > 1) {
+            const timePart = parts[1];
+            const isPM = parts[2]?.toUpperCase() === 'PM';
+            
+            let [hours, minutes] = timePart.split(':').map(n => parseInt(n));
+            if (isPM && hours < 12) hours += 12;
+            if (!isPM && hours === 12) hours = 0;
+            
+            date.setHours(hours, minutes || 0, 0, 0);
+        } else {
+            // If no time provided, set to end of day
+            date.setHours(23, 59, 59, 999);
+        }
+        
+        return date;
     }
 
     private async _addTask(projectLine: number) {
         const taskText = await vscode.window.showInputBox({
             prompt: 'Enter task description',
-            placeHolder: 'Task description'
+            placeHolder: 'Task description (optionally add @due(MM/DD) for due date)'
         });
 
         if (taskText) {
             // Find the next project or end of file
-            let insertLine = projectLine + 1;
+            let projectEndLine = projectLine + 1;
             const doc = this._document;
-            while (insertLine < doc.lineCount && !doc.lineAt(insertLine).text.trim().endsWith(':')) {
-                insertLine++;
+            while (projectEndLine < doc.lineCount && !doc.lineAt(projectEndLine).text.trim().endsWith(':')) {
+                projectEndLine++;
             }
+
+            // Parse due date from new task if it exists
+            const dueDateMatch = taskText.match(/@due\(([^)]+)\)/);
+            const newTaskDueDate = dueDateMatch ? this._parseDate(dueDateMatch[1]) : null;
+
+            // Find the correct insertion point based on due dates
+            let insertLine = projectLine + 1;
+            let foundPosition = false;
+
+            // Scan through existing tasks to find correct position
+            for (let i = projectLine + 1; i < projectEndLine; i++) {
+                const lineText = doc.lineAt(i).text.trim();
+                if (lineText.startsWith('-')) {
+                    const existingDueDateMatch = lineText.match(/@due\(([^)]+)\)/);
+                    if (existingDueDateMatch) {
+                        const existingDueDate = this._parseDate(existingDueDateMatch[1]);
+                        if (newTaskDueDate && (
+                            existingDueDate.getFullYear() > newTaskDueDate.getFullYear() ||
+                            (existingDueDate.getFullYear() === newTaskDueDate.getFullYear() && 
+                             existingDueDate.getMonth() > newTaskDueDate.getMonth()) ||
+                            (existingDueDate.getFullYear() === newTaskDueDate.getFullYear() && 
+                             existingDueDate.getMonth() === newTaskDueDate.getMonth() && 
+                             existingDueDate.getDate() > newTaskDueDate.getDate())
+                        )) {
+                            insertLine = i;
+                            foundPosition = true;
+                            break;
+                        }
+                    } else if (newTaskDueDate) {
+                        // If existing task has no due date, put it after tasks with due dates
+                        continue;
+                    }
+                }
+            }
+
+            // If we haven't found a position and we have a due date,
+            // insert at the beginning of tasks
+            if (!foundPosition && newTaskDueDate) {
+                insertLine = projectLine + 1;
+            }
+
+            // If we don't have a due date, append at the end of tasks with no due dates
+            if (!newTaskDueDate) {
+                insertLine = projectEndLine;
+            }
+
             const wsEdit = new vscode.WorkspaceEdit();
             const position = new vscode.Position(insertLine, 0);
             wsEdit.insert(this._document.uri, position, `    - ${taskText}\n`);
@@ -390,32 +534,81 @@ export class TaskPaperPreviewPanel {
         let html = '';
         const lines = text.split('\n');
         
+        // First, collect all projects with their due dates and content
+        interface Project {
+            title: string;
+            dueDate: Date | null;
+            startLine: number;
+            content: string;
+            rawLines: string[];
+        }
+        
+        const projects: Project[] = [];
+        let currentProject: Project | null = null;
+        
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
 
             if (line.endsWith(':')) {
-                // Project
-                html += `
-                    <div class="project-header">
-                        <div class="project-title">
-                            <div class="project">${this._escapeHtml(line)}</div>
-                        </div>
-                        <div class="project-actions">
-                            <button class="icon-button add-task" data-line="${i}" title="Add Task">+</button>
-                            <button class="icon-button delete-button delete-project" data-line="${i}" title="Delete Project">×</button>
-                        </div>
-                    </div>`;
-            } else if (line.startsWith('-')) {
-                // Task
-                const isDone = line.includes('@done');
-                const taskText = line.substring(1).trim();
-                html += `
-                    <div class="task ${isDone ? 'done' : ''}">
-                        <input type="checkbox" ${isDone ? 'checked' : ''} data-line="${i}">
-                        <span class="task-text" data-line="${i}">${this._formatTask(taskText)}</span>
+                // If we have a current project, save it
+                if (currentProject) {
+                    projects.push(currentProject);
+                }
+                
+                // Start new project
+                const dueDateMatch = line.match(/@due\(([^)]+)\)/);
+                currentProject = {
+                    title: line,
+                    dueDate: dueDateMatch ? new Date(dueDateMatch[1]) : null,
+                    startLine: i,
+                    content: '',
+                    rawLines: []
+                };
+            } else if (currentProject) {
+                currentProject.rawLines.push(lines[i]);
+            }
+        }
+        
+        // Add the last project if exists
+        if (currentProject) {
+            projects.push(currentProject);
+        }
+
+        // Sort projects by due date
+        projects.sort((a, b) => {
+            if (!a.dueDate && !b.dueDate) return 0;
+            if (!a.dueDate) return 1;
+            if (!b.dueDate) return -1;
+            return a.dueDate.getTime() - b.dueDate.getTime();
+        });
+
+        // Generate HTML for each project
+        for (const project of projects) {
+            html += `
+                <div class="project-header">
+                    <div class="project-title">
+                        <div class="project">${this._escapeHtml(project.title)}</div>
                     </div>
-                `;
+                    <div class="project-actions">
+                        <button class="icon-button add-task" data-line="${project.startLine}" title="Add Task">+</button>
+                        <button class="icon-button delete-button delete-project" data-line="${project.startLine}" title="Delete Project">×</button>
+                    </div>
+                </div>`;
+
+            // Process tasks within the project
+            for (const line of project.rawLines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('-')) {
+                    const isDone = trimmedLine.includes('@done');
+                    const taskText = trimmedLine.substring(1).trim();
+                    html += `
+                        <div class="task ${isDone ? 'done' : ''}">
+                            <input type="checkbox" ${isDone ? 'checked' : ''} data-line="${project.startLine}">
+                            <span class="task-text" data-line="${project.startLine}">${this._formatTask(taskText)}</span>
+                        </div>
+                    `;
+                }
             }
         }
         
