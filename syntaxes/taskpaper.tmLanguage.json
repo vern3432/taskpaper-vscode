@@ -1,0 +1,46 @@
+{
+    "scopeName": "source.taskpaper",
+    "name": "TaskPaper",
+    "fileTypes": ["taskpaper"],
+    "patterns": [
+        {
+            "match": "^(.+):$",
+            "name": "entity.name.section.taskpaper"
+        },
+        {
+            "match": "^\\s*-\\s+(.+)$",
+            "name": "markup.list.unnumbered.taskpaper"
+        },
+        {
+            "match": "@class(?:\\(([^)]*?)\\)|\\s*([^\\s@]+(?:\\s+[^\\s@]+)*))",
+            "captures": {
+                "0": { "name": "entity.name.class.taskpaper" },
+                "1": { "name": "string.other.class.taskpaper" },
+                "2": { "name": "string.other.class.taskpaper" }
+            }
+        },
+        {
+            "match": "@due(?:\\(([^)]*?)\\)|\\s*([^\\s@]+(?:\\s+[^\\s@]+)*))",
+            "captures": {
+                "0": { "name": "keyword.other.due.taskpaper" },
+                "1": { "name": "constant.other.date.taskpaper" },
+                "2": { "name": "constant.other.date.taskpaper" }
+            }
+        },
+        {
+            "match": "@done(?:\\(([^)]*?)\\))?",
+            "captures": {
+                "0": { "name": "keyword.control.done.taskpaper" },
+                "1": { "name": "constant.other.date.taskpaper" }
+            }
+        },
+        {
+            "match": "@([\\w-]+)(?:\\(([^)]*?)\\)|\\s*([^\\s@]+(?:\\s+[^\\s@]+)*))?",
+            "captures": {
+                "1": { "name": "keyword.other.taskpaper" },
+                "2": { "name": "string.other.taskpaper" },
+                "3": { "name": "string.other.taskpaper" }
+            }
+        }
+    ]
+} 

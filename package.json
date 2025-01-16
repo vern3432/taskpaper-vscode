@@ -1,0 +1,91 @@
+{
+  "name": "taskpaper-extension",
+  "displayName": "TaskPaper Extension",
+  "description": "VS Code extension for TaskPaper format files with syntax highlighting and task management",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:taskpaper"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "taskpaper",
+        "aliases": [
+          "TaskPaper",
+          "taskpaper"
+        ],
+        "extensions": [
+          ".taskpaper"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "taskpaper",
+        "scopeName": "source.taskpaper",
+        "path": "./syntaxes/taskpaper.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "taskpaper.toggleDone",
+        "title": "Toggle Done Status"
+      },
+      {
+        "command": "taskpaper.openPreview",
+        "title": "TaskPaper: Open Preview",
+        "icon": "$(preview)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "editorLangId == taskpaper",
+          "command": "taskpaper.openPreview",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "taskpaper.toggleDone",
+        "key": "ctrl+d",
+        "mac": "cmd+d",
+        "when": "editorTextFocus && editorLangId == taskpaper"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^16.18.34",
+    "@types/vscode": "^1.85.0",
+    "@types/glob": "^7.2.0",
+    "@types/mocha": "^9.1.1",
+    "@typescript-eslint/eslint-plugin": "^5.59.8",
+    "@typescript-eslint/parser": "^5.59.8",
+    "eslint": "^8.41.0",
+    "glob": "^7.2.3",
+    "mocha": "^10.2.0",
+    "typescript": "^5.1.3",
+    "@vscode/test-electron": "^2.3.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
