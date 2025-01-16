@@ -197,32 +197,27 @@ export class TaskPaperPreviewPanel {
     }
 
     private _parseDate(dateStr: string): Date {
-        // Handle dates with times and without times
-        const parts = dateStr.trim().split(' ');
-        const datePart = parts[0];
-        
         // Parse MM/DD format
-        const [month, day] = datePart.split('/').map(n => parseInt(n));
+        const [month, day] = dateStr.split('/').map(n => parseInt(n));
         
-        // Create date with current year (since we're dealing with MM/DD format)
-        const date = new Date();
-        date.setMonth(month - 1); // Months are 0-based in JavaScript
-        date.setDate(day);
+        // Get current date info
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1; // Convert to 1-based month
+        const currentYear = now.getFullYear();
         
-        // If time is provided, parse it
-        if (parts.length > 1) {
-            const timePart = parts[1];
-            const isPM = parts[2]?.toUpperCase() === 'PM';
-            
-            let [hours, minutes] = timePart.split(':').map(n => parseInt(n));
-            if (isPM && hours < 12) hours += 12;
-            if (!isPM && hours === 12) hours = 0;
-            
-            date.setHours(hours, minutes || 0, 0, 0);
-        } else {
-            // If no time provided, set to end of day
-            date.setHours(23, 59, 59, 999);
+        // Determine if the date should be in the current year or next year
+        let year = currentYear;
+        if (month < currentMonth) {
+            // If the month is earlier than current month, it must be next year
+            year = currentYear + 1;
+        } else if (month === currentMonth && day < now.getDate()) {
+            // If it's the same month but day is earlier, it must be next year
+            year = currentYear + 1;
         }
+        
+        // Create the date
+        const date = new Date(year, month - 1, day);
+        date.setHours(0, 0, 0, 0);
         
         return date;
     }
@@ -355,6 +350,10 @@ export class TaskPaperPreviewPanel {
                     .project { 
                         font-weight: bold;
                         font-size: 1.2em;
+                        color: #4B9CD3;
+                        background: rgba(75, 156, 211, 0.1);
+                        padding: 4px 8px;
+                        border-radius: 4px;
                     }
                     .project-actions {
                         display: flex;
@@ -457,6 +456,25 @@ export class TaskPaperPreviewPanel {
                         display: block;
                         margin: 20px auto;
                         padding: 4px 12px;
+                    }
+                    .status-indicator {
+                        width: 24px;
+                        height: 24px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 16px;
+                        border-radius: 50%;
+                        margin-right: 4px;
+                    }
+                    .status-complete {
+                        color: #4CAF50;  /* Subtle green */
+                    }
+                    .status-pending {
+                        color: #1E88E5;  /* Dark blue */
+                    }
+                    .status-overdue {
+                        color: #E53935;  /* Vibrant red */
                     }
                 </style>
             </head>
@@ -578,7 +596,7 @@ export class TaskPaperPreviewPanel {
                 const dueDateMatch = line.match(/@due\(([^)]+)\)/);
                 currentProject = {
                     title: line,
-                    dueDate: dueDateMatch ? new Date(dueDateMatch[1]) : null,
+                    dueDate: dueDateMatch ? this._parseDate(dueDateMatch[1]) : null,
                     startLine: i,
                     rawLines: []
                 };
@@ -605,16 +623,52 @@ export class TaskPaperPreviewPanel {
 
         // Generate HTML for each project
         for (const project of projects) {
-                html += `
-                    <div class="project-header">
-                        <div class="project-title">
+            // Check project status
+            let allTasksComplete = true;
+            let hasAnyTasks = false;
+            let isOverdue = false;
+
+            // Check if project has due date and is overdue
+            if (project.dueDate) {
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                isOverdue = project.dueDate < today;
+            }
+
+            // Check tasks completion status
+            for (const line of project.rawLines) {
+                const trimmedLine = line.text.trim();
+                if (trimmedLine.startsWith('-')) {
+                    hasAnyTasks = true;
+                    if (!trimmedLine.includes('@done')) {
+                        allTasksComplete = false;
+                    }
+                }
+            }
+
+            // Determine status indicator
+            let statusIcon = '';
+            if (hasAnyTasks) {
+                if (allTasksComplete) {
+                    statusIcon = '<div class="status-indicator status-complete">✓</div>';
+                } else if (isOverdue) {
+                    statusIcon = '<div class="status-indicator status-overdue">●</div>';
+                } else {
+                    statusIcon = '<div class="status-indicator status-pending">●</div>';
+                }
+            }
+
+            html += `
+                <div class="project-header">
+                    <div class="project-title">
+                        ${statusIcon}
                         <div class="project">${this._escapeHtml(project.title)}</div>
-                        </div>
-                        <div class="project-actions">
+                    </div>
+                    <div class="project-actions">
                         <button class="icon-button add-task" data-line="${project.startLine}" title="Add Task">+</button>
                         <button class="icon-button delete-button delete-project" data-line="${project.startLine}" title="Delete Project">×</button>
-                        </div>
-                    </div>`;
+                    </div>
+                </div>`;
 
             // Process tasks within the project
             for (const line of project.rawLines) {
