@@ -1,5 +1,17 @@
 import * as vscode from 'vscode';
 
+interface TaskLine {
+    text: string;
+    lineNumber: number;
+}
+
+interface Project {
+    title: string;
+    dueDate: Date | null;
+    startLine: number;
+    rawLines: TaskLine[];
+}
+
 export class TaskPaperPreviewPanel {
     public static currentPanel: TaskPaperPreviewPanel | undefined;
     private readonly _panel: vscode.WebviewPanel;
@@ -76,6 +88,13 @@ export class TaskPaperPreviewPanel {
 
     private async _toggleTask(line: number) {
         const lineText = this._document.lineAt(line).text;
+        
+        // Only toggle lines that are actual tasks (start with -)
+        if (!lineText.trim().startsWith('-')) {
+            console.log('Not a task line:', lineText);
+            return;
+        }
+
         const wsEdit = new vscode.WorkspaceEdit();
         const uri = this._document.uri;
 
@@ -539,8 +558,7 @@ export class TaskPaperPreviewPanel {
             title: string;
             dueDate: Date | null;
             startLine: number;
-            content: string;
-            rawLines: string[];
+            rawLines: TaskLine[];
         }
         
         const projects: Project[] = [];
@@ -562,11 +580,13 @@ export class TaskPaperPreviewPanel {
                     title: line,
                     dueDate: dueDateMatch ? new Date(dueDateMatch[1]) : null,
                     startLine: i,
-                    content: '',
                     rawLines: []
                 };
             } else if (currentProject) {
-                currentProject.rawLines.push(lines[i]);
+                currentProject.rawLines.push({
+                    text: lines[i],
+                    lineNumber: i
+                });
             }
         }
         
@@ -585,27 +605,27 @@ export class TaskPaperPreviewPanel {
 
         // Generate HTML for each project
         for (const project of projects) {
-            html += `
-                <div class="project-header">
-                    <div class="project-title">
+                html += `
+                    <div class="project-header">
+                        <div class="project-title">
                         <div class="project">${this._escapeHtml(project.title)}</div>
-                    </div>
-                    <div class="project-actions">
+                        </div>
+                        <div class="project-actions">
                         <button class="icon-button add-task" data-line="${project.startLine}" title="Add Task">+</button>
                         <button class="icon-button delete-button delete-project" data-line="${project.startLine}" title="Delete Project">×</button>
-                    </div>
-                </div>`;
+                        </div>
+                    </div>`;
 
             // Process tasks within the project
             for (const line of project.rawLines) {
-                const trimmedLine = line.trim();
+                const trimmedLine = line.text.trim();
                 if (trimmedLine.startsWith('-')) {
                     const isDone = trimmedLine.includes('@done');
                     const taskText = trimmedLine.substring(1).trim();
                     html += `
-                        <div class="task ${isDone ? 'done' : ''}">
-                            <input type="checkbox" ${isDone ? 'checked' : ''} data-line="${project.startLine}">
-                            <span class="task-text" data-line="${project.startLine}">${this._formatTask(taskText)}</span>
+                        <div class="task ${isDone ? 'done' : ''}" data-line="${line.lineNumber}">
+                            <input type="checkbox" ${isDone ? 'checked' : ''} data-line="${line.lineNumber}">
+                            <span class="task-text" data-line="${line.lineNumber}">${this._formatTask(taskText)}</span>
                         </div>
                     `;
                 }
